@@ -10,7 +10,17 @@ use Illuminate\Support\Facades\Log;
 
 class WebController extends Controller
 {
-    protected $lapanganService;
+    private const DEFAULT_PAGINATION_SIZE = 15;
+    private const DASHBOARD_RECENT_ORDERS_LIMIT = 10;
+    private const ORDER_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
+    private const PAYMENT_STATUSES = ['unpaid', 'paid', 'refunded'];
+    
+    private const OPERATING_HOURS = [
+        '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 
+        '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'
+    ];
+
+    private LapanganService $lapanganService;
 
     public function __construct(LapanganService $lapanganService)
     {
@@ -19,91 +29,81 @@ class WebController extends Controller
 
     public function dashboard()
     {
-        $totalOrders = Order::count();
-        $ordersToday = Order::whereDate('created_at', today())->count();
-        $pendingOrders = Order::where('status', 'pending')->count();
-        $confirmedOrders = Order::where('status', 'confirmed')->count();
-        $cancelledOrders = Order::where('status', 'cancelled')->count();
-        
-        // Revenue statistics
-        $totalRevenue = Order::where('status', 'confirmed')->sum('total_harga');
-        $revenueToday = Order::where('status', 'confirmed')
-                            ->whereDate('created_at', today())
-                            ->sum('total_harga');
-        
-        // Recent orders with lapangan info - sorted by upcoming booking dates first
-        $recentOrders = Order::where('tanggal_booking', '>=', Carbon::now()->toDateString())
-                            ->orderBy('tanggal_booking', 'asc')
-                            ->orderBy('jam_mulai', 'asc')
-                            ->take(10)
-                            ->get();
-        
-        // If we don't have enough upcoming orders, add recent past orders
-        if ($recentOrders->count() < 10) {
-            $additionalOrders = Order::where('tanggal_booking', '<', Carbon::now()->toDateString())
-                                   ->orderBy('tanggal_booking', 'desc')
-                                   ->orderBy('jam_mulai', 'desc')
-                                   ->take(10 - $recentOrders->count())
-                                   ->get();
-            $recentOrders = $recentOrders->merge($additionalOrders);
-        }
-
-        // Get lapangan info for each recent order
-        foreach ($recentOrders as $order) {
-            if ($order->lapangan_id) {
-                $lapanganData = $this->lapanganService->getLapangan($order->lapangan_id);
-                if (isset($lapanganData['data'])) {
-                    $lapangan = $lapanganData['data'];
-                    $order->lapangan_info = [
-                        'nama' => $lapangan['nama'] ?? 'N/A',
-                        'jenis' => ucfirst($lapangan['jenis'] ?? 'N/A'),
-                        'lokasi' => $lapangan['lokasi'] ?? 'N/A'
-                    ];
-                } else {
-                    $order->lapangan_info = [
-                        'nama' => 'Data tidak ditemukan',
-                        'jenis' => 'N/A',
-                        'lokasi' => 'N/A'
-                    ];
-                }
-            } else {
-                $order->lapangan_info = [
-                    'nama' => 'ID lapangan kosong',
-                    'jenis' => 'N/A',
-                    'lokasi' => 'N/A'
-                ];
-            }
-        }
-
-        // Statistics array for view
-        $stats = [
-            'total_orders' => $totalOrders,
-            'orders_today' => $ordersToday,
-            'pending_orders' => $pendingOrders,
-            'confirmed_orders' => $confirmedOrders,
-            'cancelled_orders' => $cancelledOrders,
-            'total_revenue' => $totalRevenue,
-            'revenue_today' => $revenueToday
-        ];
+        $stats = $this->getDashboardStatistics();
+        $recentOrders = $this->getRecentOrdersWithLapanganInfo();
 
         return view('dashboard', compact('stats', 'recentOrders'));
     }
 
+    private function getDashboardStatistics(): array
+    {
+        return [
+            'total_orders' => Order::count(),
+            'orders_today' => Order::whereDate('created_at', today())->count(),
+            'pending_orders' => Order::where('status', 'pending')->count(),
+            'confirmed_orders' => Order::where('status', 'confirmed')->count(),
+            'cancelled_orders' => Order::where('status', 'cancelled')->count(),
+            'total_revenue' => Order::where('status', 'confirmed')->sum('total_harga'),
+            'revenue_today' => Order::where('status', 'confirmed')
+                                   ->whereDate('created_at', today())
+                                   ->sum('total_harga')
+        ];
+    }
+
+    private function getRecentOrdersWithLapanganInfo()
+    {
+        $recentOrders = $this->getRecentOrders();
+        
+        foreach ($recentOrders as $order) {
+            $order->lapangan_info = $this->getLapanganInfoForOrder($order);
+        }
+
+        return $recentOrders;
+    }
+
+    private function getRecentOrders()
+    {
+        $upcomingOrders = Order::where('tanggal_booking', '>=', Carbon::now()->toDateString())
+                               ->orderBy('tanggal_booking', 'asc')
+                               ->orderBy('jam_mulai', 'asc')
+                               ->take(self::DASHBOARD_RECENT_ORDERS_LIMIT)
+                               ->get();
+
+        if ($upcomingOrders->count() < self::DASHBOARD_RECENT_ORDERS_LIMIT) {
+            $pastOrders = Order::where('tanggal_booking', '<', Carbon::now()->toDateString())
+                               ->orderBy('tanggal_booking', 'desc')
+                               ->orderBy('jam_mulai', 'desc')
+                               ->take(self::DASHBOARD_RECENT_ORDERS_LIMIT - $upcomingOrders->count())
+                               ->get();
+            
+            return $upcomingOrders->merge($pastOrders);
+        }
+
+        return $upcomingOrders;
+    }
+
     public function orders(Request $request)
+    {
+        $query = $this->buildOrdersQuery($request);
+        $orders = $this->paginateOrdersWithSorting($query);
+        
+        $this->attachLapanganInfoToOrders($orders);
+        
+        return view('orders.index', compact('orders'));
+    }
+
+    private function buildOrdersQuery(Request $request)
     {
         $query = Order::query();
         
-        // Filter by status
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
         
-        // Filter by payment status
         if ($request->filled('payment_status')) {
             $query->where('payment_status', $request->payment_status);
         }
         
-        // Filter by date range
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
         }
@@ -112,137 +112,179 @@ class WebController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
         
-        // Filter by search
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('customer_name', 'like', "%{$search}%")
-                  ->orWhere('customer_email', 'like', "%{$search}%")
-                  ->orWhere('customer_phone', 'like', "%{$search}%")
-                  ->orWhere('order_number', 'like', "%{$search}%");
-            });
+            $this->addSearchFilters($query, $request->search);
         }
-        
-        // Sort by upcoming bookings first, then by booking date and time
-        $orders = $query->orderByRaw("
+
+        return $query;
+    }
+
+    private function addSearchFilters($query, string $search): void
+    {
+        $query->where(function($q) use ($search) {
+            $q->where('customer_name', 'like', "%{$search}%")
+              ->orWhere('customer_email', 'like', "%{$search}%")
+              ->orWhere('customer_phone', 'like', "%{$search}%")
+              ->orWhere('order_number', 'like', "%{$search}%");
+        });
+    }
+
+    private function paginateOrdersWithSorting($query)
+    {
+        return $query->orderByRaw("
             CASE 
                 WHEN tanggal_booking >= CURDATE() THEN 0 
                 ELSE 1 
             END,
             tanggal_booking ASC,
             jam_mulai ASC
-        ")->paginate(15);
-        
-        // Get lapangan info for each order
+        ")->paginate(self::DEFAULT_PAGINATION_SIZE);
+    }
+
+    private function attachLapanganInfoToOrders($orders): void
+    {
         foreach ($orders as $order) {
-            if ($order->lapangan_id) {
-                $lapanganData = $this->lapanganService->getLapangan($order->lapangan_id);
-                if (isset($lapanganData['data'])) {
-                    $lapangan = $lapanganData['data'];
-                    $order->lapangan_info = [
-                        'nama' => $lapangan['nama'] ?? 'N/A',
-                        'jenis' => ucfirst($lapangan['jenis'] ?? 'N/A'),
-                        'lokasi' => $lapangan['lokasi'] ?? 'N/A',
-                        'harga_per_jam' => (float)($lapangan['harga_per_jam'] ?? 0),
-                        'fasilitas' => is_string($lapangan['fasilitas'] ?? '') 
-                            ? json_decode($lapangan['fasilitas'], true) 
-                            : ($lapangan['fasilitas'] ?? [])
-                    ];
-                } else {
-                    $order->lapangan_info = [
-                        'nama' => 'Data tidak ditemukan',
-                        'jenis' => 'N/A',
-                        'lokasi' => 'N/A',
-                        'harga_per_jam' => 0,
-                        'fasilitas' => []
-                    ];
-                }
-            } else {
-                $order->lapangan_info = [
-                    'nama' => 'ID lapangan kosong',
-                    'jenis' => 'N/A',
-                    'lokasi' => 'N/A',
-                    'harga_per_jam' => 0,
-                    'fasilitas' => []
-                ];
-            }
+            $order->lapangan_info = $this->getLapanganInfoForOrder($order);
         }
-        
-        return view('orders.index', compact('orders'));
     }
 
     public function show($id)
     {
         $order = Order::findOrFail($id);
         
-        // Debug log
         Log::info("Showing order ID: {$id}, Lapangan ID: {$order->lapangan_id}");
         
-        // Get lapangan info
-        if ($order->lapangan_id) {
-            $lapanganData = $this->lapanganService->getLapangan($order->lapangan_id);
-            if (isset($lapanganData['data'])) {
-                $lapangan = $lapanganData['data'];
-                $order->lapangan_info = [
-                    'nama' => $lapangan['nama'] ?? 'N/A',
-                    'jenis' => ucfirst($lapangan['jenis'] ?? 'N/A'),
-                    'lokasi' => $lapangan['lokasi'] ?? 'N/A',
-                    'harga_per_jam' => (float)($lapangan['harga_per_jam'] ?? 0),
-                    'fasilitas' => is_string($lapangan['fasilitas'] ?? '') 
-                        ? json_decode($lapangan['fasilitas'], true) 
-                        : ($lapangan['fasilitas'] ?? []),
-                    'status' => ucfirst($lapangan['status'] ?? 'N/A')
-                ];
-            } else {
-                $order->lapangan_info = [
-                    'nama' => 'Data lapangan tidak ditemukan',
-                    'jenis' => 'N/A',
-                    'lokasi' => 'N/A',
-                    'harga_per_jam' => 0,
-                    'fasilitas' => []
-                ];
-            }
-        } else {
-            $order->lapangan_info = [
-                'nama' => 'ID lapangan tidak tersedia',
-                'jenis' => 'N/A',
-                'lokasi' => 'N/A',
-                'harga_per_jam' => 0,
-                'fasilitas' => []
-            ];
-        }
+        $order->lapangan_info = $this->getLapanganInfoForOrder($order);
         
         return view('orders.show', compact('order'));
+    }
+
+    private function getLapanganInfoForOrder(Order $order): array
+    {
+        if (!$order->lapangan_id) {
+            return $this->getDefaultLapanganInfo('ID lapangan tidak tersedia');
+        }
+
+        $lapanganData = $this->lapanganService->getLapangan($order->lapangan_id);
+        
+        if (!isset($lapanganData['data'])) {
+            return $this->getDefaultLapanganInfo('Data lapangan tidak ditemukan');
+        }
+
+        return $this->formatLapanganInfo($lapanganData['data']);
+    }
+
+    private function getDefaultLapanganInfo(string $namaOverride = 'N/A'): array
+    {
+        return [
+            'nama' => $namaOverride,
+            'jenis' => 'N/A',
+            'lokasi' => 'N/A',
+            'harga_per_jam' => 0,
+            'fasilitas' => [],
+            'status' => 'N/A'
+        ];
+    }
+
+    private function formatLapanganInfo(array $lapangan): array
+    {
+        $fasilitas = $lapangan['fasilitas'] ?? '';
+        if (is_string($fasilitas)) {
+            $fasilitas = json_decode($fasilitas, true) ?? [];
+        }
+
+        return [
+            'nama' => $lapangan['nama'] ?? 'N/A',
+            'jenis' => ucfirst($lapangan['jenis'] ?? 'N/A'),
+            'lokasi' => $lapangan['lokasi'] ?? 'N/A',
+            'harga_per_jam' => (float)($lapangan['harga_per_jam'] ?? 0),
+            'fasilitas' => $fasilitas,
+            'status' => ucfirst($lapangan['status'] ?? 'N/A')
+        ];
     }
     
     public function edit($id)
     {
         $order = Order::findOrFail($id);
-        
-        // Get lapangan list from lapangan service
-        $lapanganResponse = $this->lapanganService->getAllLapangan();
-        
-        if (isset($lapanganResponse['data'])) {
-            if (isset($lapanganResponse['data']['data'])) {
-                // Paginated data
-                $lapangan_list = $lapanganResponse['data']['data'];
-            } else {
-                // Direct array data
-                $lapangan_list = $lapanganResponse['data'];
-            }
-        } else {
-            $lapangan_list = [];
-            Log::warning('Failed to get lapangan list from service', ['response' => $lapanganResponse]);
-        }
+        $lapangan_list = $this->getLapanganList();
         
         return view('orders.edit', compact('order', 'lapangan_list'));
+    }
+
+    public function create(Request $request)
+    {
+        $lapangan_list = $this->getLapanganList();
+        $selectedLapanganId = $request->get('lapangan_id');
+        
+        return view('orders.create', compact('lapangan_list', 'selectedLapanganId'));
+    }
+
+    private function getLapanganList(): array
+    {
+        $lapanganResponse = $this->lapanganService->getAllLapangan();
+        
+        if (!isset($lapanganResponse['data'])) {
+            Log::warning('Failed to get lapangan list from service', ['response' => $lapanganResponse]);
+            return [];
+        }
+
+        // Handle both paginated and direct array responses
+        return isset($lapanganResponse['data']['data']) 
+            ? $lapanganResponse['data']['data'] 
+            : $lapanganResponse['data'];
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $this->validateOrderRequest($request);
+        
+        $conflictingOrder = $this->checkScheduleConflict(
+            $validated['lapangan_id'],
+            $validated['tanggal_booking'],
+            $validated['jam_mulai'],
+            $validated['jam_selesai']
+        );
+
+        if ($conflictingOrder) {
+            return $this->redirectWithScheduleConflictError($conflictingOrder);
+        }
+
+        $orderData = $this->prepareOrderData($validated);
+        $order = Order::create($orderData);
+
+        return redirect()->route('orders.show', $order->id)
+                        ->with('success', 'Order berhasil dibuat!');
     }
 
     public function update(Request $request, $id)
     {
         $order = Order::findOrFail($id);
-        
-        $validated = $request->validate([
+        $validated = $this->validateOrderRequest($request);
+
+        if ($this->hasScheduleChanged($order, $validated)) {
+            $conflictingOrder = $this->checkScheduleConflictForUpdate(
+                $validated['lapangan_id'],
+                $validated['tanggal_booking'],
+                $validated['jam_mulai'],
+                $validated['jam_selesai'],
+                $order->id
+            );
+
+            if ($conflictingOrder) {
+                return $this->redirectWithScheduleConflictError($conflictingOrder);
+            }
+        }
+
+        $updateData = $this->prepareOrderData($validated);
+        $order->update($updateData);
+
+        return redirect()->route('orders.show', $order->id)
+                        ->with('success', 'Order berhasil diupdate!');
+    }
+
+    private function validateOrderRequest(Request $request): array
+    {
+        return $request->validate([
             'customer_name' => 'required|string|max:255',
             'customer_email' => 'required|email|max:255',
             'customer_phone' => 'required|string|max:20',
@@ -251,50 +293,61 @@ class WebController extends Controller
             'jam_mulai' => 'required',
             'jam_selesai' => 'required',
             'total_harga' => 'required|numeric|min:0',
-            'status' => 'required|in:pending,confirmed,cancelled',
-            'payment_status' => 'required|in:unpaid,paid',
+            'status' => 'required|in:' . implode(',', self::ORDER_STATUSES),
+            'payment_status' => 'required|in:' . implode(',', self::PAYMENT_STATUSES),
             'notes' => 'nullable|string'
         ]);
+    }
 
-        // Validasi konflik jadwal hanya jika ada perubahan jadwal, lapangan, atau tanggal
-        $scheduleChanged = $order->lapangan_id != $validated['lapangan_id'] ||
-                          $order->tanggal_booking != $validated['tanggal_booking'] ||
-                          $order->jam_mulai != $validated['jam_mulai'] ||
-                          $order->jam_selesai != $validated['jam_selesai'];
+    private function hasScheduleChanged(Order $order, array $validated): bool
+    {
+        return $order->lapangan_id != $validated['lapangan_id'] ||
+               $order->tanggal_booking != $validated['tanggal_booking'] ||
+               $order->jam_mulai != $validated['jam_mulai'] ||
+               $order->jam_selesai != $validated['jam_selesai'];
+    }
 
-        if ($scheduleChanged) {
-            $conflictingOrder = $this->checkScheduleConflictForUpdate(
-                $validated['lapangan_id'],
-                $validated['tanggal_booking'],
-                $validated['jam_mulai'],
-                $validated['jam_selesai'],
-                $order->id // Exclude current order from conflict check
-            );
-
-            if ($conflictingOrder) {
-                return redirect()->back()
-                    ->withInput()
-                    ->withErrors([
-                        'jam_mulai' => 'Jadwal lapangan sudah dibooking oleh ' . $conflictingOrder->customer_name . 
-                                      ' pada tanggal ' . $conflictingOrder->tanggal_booking->format('d/m/Y') . 
-                                      ' jam ' . $conflictingOrder->jam_mulai . ' - ' . $conflictingOrder->jam_selesai . 
-                                      '. Silakan pilih waktu lain.'
-                    ]);
-            }
+    private function prepareOrderData(array $validated): array
+    {
+        $orderData = $validated;
+        
+        // Generate order number for new orders
+        if (!isset($orderData['order_number'])) {
+            $orderData['order_number'] = $this->generateOrderNumber();
         }
+        
+        // Set default value for jadwal_lapangan_id if not provided
+        $orderData['jadwal_lapangan_id'] = $orderData['jadwal_lapangan_id'] ?? 1;
+        
+        // Map fields for database compatibility
+        $orderData['booking_date'] = $validated['tanggal_booking'];
+        $orderData['start_time'] = $validated['jam_mulai'];
+        $orderData['end_time'] = $validated['jam_selesai'];
+        $orderData['phone'] = $validated['customer_phone'];
+        $orderData['total_price'] = $validated['total_harga'];
 
-        // Map fields untuk kompatibilitas dengan tabel database
-        $updateData = $validated;
-        $updateData['booking_date'] = $validated['tanggal_booking']; // mapping ke field database
-        $updateData['start_time'] = $validated['jam_mulai'];         // mapping ke field database
-        $updateData['end_time'] = $validated['jam_selesai'];         // mapping ke field database
-        $updateData['phone'] = $validated['customer_phone'];         // untuk kompatibilitas dengan tabel
-        $updateData['total_price'] = $validated['total_harga'];      // untuk kompatibilitas dengan tabel
+        return $orderData;
+    }
 
-        $order->update($updateData);
+    private function generateOrderNumber(): string
+    {
+        $todayOrderCount = Order::whereDate('created_at', today())->count();
+        return 'ORD-' . date('Ymd') . '-' . str_pad($todayOrderCount + 1, 3, '0', STR_PAD_LEFT);
+    }
 
-        return redirect()->route('orders.show', $order->id)
-                        ->with('success', 'Order berhasil diupdate!');
+    private function redirectWithScheduleConflictError($conflictingOrder)
+    {
+        $errorMessage = sprintf(
+            'Jadwal lapangan sudah dibooking oleh %s pada tanggal %s jam %s - %s. Silakan pilih waktu lain.',
+            $conflictingOrder->customer_name,
+            $conflictingOrder->tanggal_booking->format('d/m/Y'),
+            $conflictingOrder->jam_mulai,
+            $conflictingOrder->jam_selesai
+        );
+
+        return redirect()->back()
+                        ->withInput()
+                        ->withErrors(['jam_mulai' => $errorMessage]);
     }
 
     public function destroy($id)
@@ -307,8 +360,7 @@ class WebController extends Controller
             
             Log::info("Order found: {$orderNumber}, Status: {$order->status}, Payment: {$order->payment_status}");
             
-            // Check if order can be deleted (business logic)
-            if ($order->status == 'confirmed' && $order->payment_status == 'paid') {
+            if ($this->cannotDeleteOrder($order)) {
                 Log::warning("Delete blocked - Order {$orderNumber} is confirmed and paid");
                 return redirect()->route('orders.index')
                     ->with('error', "Order {$orderNumber} tidak dapat dihapus karena sudah dikonfirmasi dan dibayar. Silakan batalkan order terlebih dahulu.");
@@ -329,84 +381,9 @@ class WebController extends Controller
         }
     }
 
-    public function create(Request $request)
+    private function cannotDeleteOrder(Order $order): bool
     {
-        // Get lapangan list from lapangan service
-        $lapanganResponse = $this->lapanganService->getAllLapangan();
-        
-        if (isset($lapanganResponse['data'])) {
-            if (isset($lapanganResponse['data']['data'])) {
-                // Paginated data
-                $lapangan_list = $lapanganResponse['data']['data'];
-            } else {
-                // Direct array data
-                $lapangan_list = $lapanganResponse['data'];
-            }
-        } else {
-            $lapangan_list = [];
-            Log::warning('Failed to get lapangan list from service', ['response' => $lapanganResponse]);
-        }
-        
-        // Get selected lapangan ID from query parameter
-        $selectedLapanganId = $request->get('lapangan_id');
-        
-        return view('orders.create', compact('lapangan_list', 'selectedLapanganId'));
-    }
-
-    public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'customer_name' => 'required|string|max:255',
-            'customer_email' => 'required|email|max:255',
-            'customer_phone' => 'required|string|max:20',
-            'lapangan_id' => 'required|integer',
-            'tanggal_booking' => 'required|date',
-            'jam_mulai' => 'required',
-            'jam_selesai' => 'required',
-            'total_harga' => 'required|numeric|min:0',
-            'status' => 'required|in:pending,confirmed,cancelled',
-            'payment_status' => 'required|in:unpaid,paid',
-            'notes' => 'nullable|string'
-        ]);
-
-        // Validasi konflik jadwal booking
-        $conflictingOrder = $this->checkScheduleConflict(
-            $validated['lapangan_id'],
-            $validated['tanggal_booking'],
-            $validated['jam_mulai'],
-            $validated['jam_selesai']
-        );
-
-        if ($conflictingOrder) {
-            return redirect()->back()
-                ->withInput()
-                ->withErrors([
-                    'jam_mulai' => 'Jadwal lapangan sudah dibooking oleh ' . $conflictingOrder->customer_name . 
-                                  ' pada tanggal ' . $conflictingOrder->tanggal_booking->format('d/m/Y') . 
-                                  ' jam ' . $conflictingOrder->jam_mulai . ' - ' . $conflictingOrder->jam_selesai . 
-                                  '. Silakan pilih waktu lain.'
-                ]);
-        }
-
-        // Generate order number
-        $orderNumber = 'ORD-' . date('Ymd') . '-' . str_pad(Order::whereDate('created_at', today())->count() + 1, 3, '0', STR_PAD_LEFT);
-        $validated['order_number'] = $orderNumber;
-        
-        // Set default value for jadwal_lapangan_id if not provided
-        $validated['jadwal_lapangan_id'] = 1; // Default dummy value
-
-        // Map fields untuk kompatibilitas dengan tabel database
-        $orderData = $validated;
-        $orderData['booking_date'] = $validated['tanggal_booking']; // mapping ke field database
-        $orderData['start_time'] = $validated['jam_mulai'];         // mapping ke field database
-        $orderData['end_time'] = $validated['jam_selesai'];         // mapping ke field database
-        $orderData['phone'] = $validated['customer_phone'];         // untuk kompatibilitas dengan tabel
-        $orderData['total_price'] = $validated['total_harga'];      // untuk kompatibilitas dengan tabel
-
-        $order = Order::create($orderData);
-
-        return redirect()->route('orders.show', $order->id)
-                        ->with('success', 'Order berhasil dibuat!');
+        return $order->status === 'confirmed' && $order->payment_status === 'paid';
     }
 
     public function updateStatus(Request $request, $id)
@@ -417,43 +394,15 @@ class WebController extends Controller
             $order = Order::findOrFail($id);
             Log::info("Order found: {$order->order_number}, Current Status: {$order->status}, Current Payment: {$order->payment_status}");
             
-            // Validate only the fields that are being sent
-            $rules = [];
-            $updateData = [];
+            $validationRules = $this->buildStatusUpdateValidationRules($request);
+            $updateData = $this->buildStatusUpdateData($request);
             
-            if ($request->has('status')) {
-                $rules['status'] = 'required|in:pending,confirmed,cancelled,completed';
-                $updateData['status'] = $request->status;
-            }
-            
-            if ($request->has('payment_status')) {
-                $rules['payment_status'] = 'required|in:unpaid,paid,refunded';
-                $updateData['payment_status'] = $request->payment_status;
-            }
-            
-            if ($request->has('notes')) {
-                $rules['notes'] = 'nullable|string|max:500';
-                $updateData['notes'] = $request->notes;
-            }
-            
-            // Validate the request
-            $validated = $request->validate($rules);
-            
-            // Update only the provided fields
+            $validated = $request->validate($validationRules);
             $order->update($updateData);
             
             Log::info("Order {$order->order_number} updated successfully", $updateData);
             
-            // Create success message based on what was updated
-            $message = 'Status order berhasil diupdate!';
-            if (isset($updateData['status']) && isset($updateData['payment_status'])) {
-                $message = "Status order berhasil diubah menjadi {$updateData['status']} dan payment status menjadi {$updateData['payment_status']}!";
-            } elseif (isset($updateData['status'])) {
-                $message = "Status order berhasil diubah menjadi {$updateData['status']}!";
-            } elseif (isset($updateData['payment_status'])) {
-                $message = "Payment status berhasil diubah menjadi {$updateData['payment_status']}!";
-            }
-
+            $message = $this->generateStatusUpdateMessage($updateData);
             return redirect()->back()->with('success', $message);
             
         } catch (\Exception $e) {
@@ -464,42 +413,63 @@ class WebController extends Controller
         }
     }
 
+    private function buildStatusUpdateValidationRules(Request $request): array
+    {
+        $rules = [];
+        
+        if ($request->has('status')) {
+            $rules['status'] = 'required|in:' . implode(',', self::ORDER_STATUSES);
+        }
+        
+        if ($request->has('payment_status')) {
+            $rules['payment_status'] = 'required|in:' . implode(',', self::PAYMENT_STATUSES);
+        }
+        
+        if ($request->has('notes')) {
+            $rules['notes'] = 'nullable|string|max:500';
+        }
+        
+        return $rules;
+    }
+
+    private function buildStatusUpdateData(Request $request): array
+    {
+        $updateData = [];
+        
+        if ($request->has('status')) {
+            $updateData['status'] = $request->status;
+        }
+        
+        if ($request->has('payment_status')) {
+            $updateData['payment_status'] = $request->payment_status;
+        }
+        
+        if ($request->has('notes')) {
+            $updateData['notes'] = $request->notes;
+        }
+        
+        return $updateData;
+    }
+
+    private function generateStatusUpdateMessage(array $updateData): string
+    {
+        if (isset($updateData['status']) && isset($updateData['payment_status'])) {
+            return "Status order berhasil diubah menjadi {$updateData['status']} dan payment status menjadi {$updateData['payment_status']}!";
+        } elseif (isset($updateData['status'])) {
+            return "Status order berhasil diubah menjadi {$updateData['status']}!";
+        } elseif (isset($updateData['payment_status'])) {
+            return "Payment status berhasil diubah menjadi {$updateData['payment_status']}!";
+        }
+        
+        return 'Status order berhasil diupdate!';
+    }
+
     /**
      * Check for schedule conflicts when booking a lapangan
      */
     private function checkScheduleConflict($lapanganId, $tanggalBooking, $jamMulai, $jamSelesai)
     {
-        // Cari order yang sudah ada dengan lapangan dan tanggal yang sama
-        // dan statusnya bukan cancelled
-        $conflictingOrder = Order::where('lapangan_id', $lapanganId)
-            ->where('tanggal_booking', $tanggalBooking)
-            ->whereNotIn('status', ['cancelled'])
-            ->where(function ($query) use ($jamMulai, $jamSelesai) {
-                // Cek overlap waktu:
-                // 1. Jam mulai baru di antara jam booking yang sudah ada
-                $query->where(function ($q) use ($jamMulai) {
-                    $q->where('jam_mulai', '<=', $jamMulai)
-                      ->where('jam_selesai', '>', $jamMulai);
-                })
-                // 2. Jam selesai baru di antara jam booking yang sudah ada  
-                ->orWhere(function ($q) use ($jamSelesai) {
-                    $q->where('jam_mulai', '<', $jamSelesai)
-                      ->where('jam_selesai', '>=', $jamSelesai);
-                })
-                // 3. Booking baru mencakup seluruh waktu booking yang sudah ada
-                ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
-                    $q->where('jam_mulai', '>=', $jamMulai)
-                      ->where('jam_selesai', '<=', $jamSelesai);
-                })
-                // 4. Booking yang sudah ada mencakup seluruh waktu booking baru
-                ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
-                    $q->where('jam_mulai', '<=', $jamMulai)
-                      ->where('jam_selesai', '>=', $jamSelesai);
-                });
-            })
-            ->first();
-
-        return $conflictingOrder;
+        return $this->findConflictingOrder($lapanganId, $tanggalBooking, $jamMulai, $jamSelesai);
     }
 
     /**
@@ -507,211 +477,85 @@ class WebController extends Controller
      */
     private function checkScheduleConflictForUpdate($lapanganId, $tanggalBooking, $jamMulai, $jamSelesai, $excludeOrderId)
     {
-        // Sama seperti checkScheduleConflict tapi mengecualikan order yang sedang diupdate
-        $conflictingOrder = Order::where('lapangan_id', $lapanganId)
-            ->where('tanggal_booking', $tanggalBooking)
-            ->where('id', '!=', $excludeOrderId) // Exclude current order
-            ->whereNotIn('status', ['cancelled'])
-            ->where(function ($query) use ($jamMulai, $jamSelesai) {
-                // Cek overlap waktu yang sama seperti sebelumnya
-                $query->where(function ($q) use ($jamMulai) {
-                    $q->where('jam_mulai', '<=', $jamMulai)
-                      ->where('jam_selesai', '>', $jamMulai);
-                })
-                ->orWhere(function ($q) use ($jamSelesai) {
-                    $q->where('jam_mulai', '<', $jamSelesai)
-                      ->where('jam_selesai', '>=', $jamSelesai);
-                })
-                ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
-                    $q->where('jam_mulai', '>=', $jamMulai)
-                      ->where('jam_selesai', '<=', $jamSelesai);
-                })
-                ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
-                    $q->where('jam_mulai', '<=', $jamMulai)
-                      ->where('jam_selesai', '>=', $jamSelesai);
-                });
-            })
-            ->first();
-
-        return $conflictingOrder;
+        return $this->findConflictingOrder($lapanganId, $tanggalBooking, $jamMulai, $jamSelesai, $excludeOrderId);
     }
 
     /**
-     * Get available time slots for a specific lapangan and date
+     * Find conflicting orders for schedule validation
      */
-    public function getAvailableTimeSlots(Request $request)
+    private function findConflictingOrder($lapanganId, $tanggalBooking, $jamMulai, $jamSelesai, $excludeOrderId = null)
     {
-        try {
-            $lapanganId = $request->get('lapangan_id');
-            $tanggalBooking = $request->get('tanggal_booking');
+        $query = Order::where('lapangan_id', $lapanganId)
+                     ->where('tanggal_booking', $tanggalBooking)
+                     ->whereNotIn('status', ['cancelled']);
 
-            if (!$lapanganId || !$tanggalBooking) {
-                return response()->json(['error' => 'lapangan_id and tanggal_booking are required'], 400);
-            }
-
-            // Jam operasional lapangan (bisa dikonfigurasi per lapangan)
-            $operatingHours = [
-                '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 
-                '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'
-            ];
-
-            // Get semua booking yang sudah ada di tanggal tersebut
-            $existingBookings = Order::where('lapangan_id', $lapanganId)
-                ->whereDate('tanggal_booking', $tanggalBooking)  // Use whereDate for proper date comparison
-                ->whereNotIn('status', ['cancelled'])
-                ->select('jam_mulai', 'jam_selesai', 'customer_name', 'order_number')
-                ->get();
-
-            // Debug: log the raw booking data
-            Log::info('Raw booking data:', [
-                'lapangan_id' => $lapanganId,
-                'tanggal_booking' => $tanggalBooking,
-                'bookings' => $existingBookings->toArray()
-            ]);
-
-            $availableSlots = [];
-            $bookedSlots = [];
-
-            // Process existing bookings to show actual booked time slots
-            foreach ($existingBookings as $booking) {
-                // Ensure we have valid time data
-                if (empty($booking->jam_mulai) || empty($booking->jam_selesai)) {
-                    continue;
-                }
-                
-                // Use model accessors for consistent time formatting
-                $bookingStart = $booking->jam_mulai_formatted;
-                $bookingEnd = $booking->jam_selesai_formatted;
-                
-                // Debug logging
-                Log::info('Processing booking for debug:', [
-                    'order_number' => $booking->order_number,
-                    'customer_name' => $booking->customer_name,
-                    'jam_mulai_raw' => $booking->jam_mulai,
-                    'jam_selesai_raw' => $booking->jam_selesai,
-                    'jam_mulai_formatted' => $bookingStart,
-                    'jam_selesai_formatted' => $bookingEnd
-                ]);
-                
-                // Validate time format and ensure it's not the same time
-                if (!empty($bookingStart) && !empty($bookingEnd) && $bookingStart !== $bookingEnd) {
-                    $bookedSlots[] = [
-                        'time' => $bookingStart . ' - ' . $bookingEnd,
-                        'start' => $bookingStart,
-                        'end' => $bookingEnd,
-                        'booked_by' => $booking->customer_name ?? 'Unknown',
-                        'order_number' => $booking->order_number ?? '',
-                        'available' => false
-                    ];
-                } else {
-                    // Log invalid time format for debugging
-                    Log::warning('Invalid time format in booking:', [
-                        'order_number' => $booking->order_number,
-                        'customer_name' => $booking->customer_name,
-                        'jam_mulai_raw' => $booking->jam_mulai,
-                        'jam_selesai_raw' => $booking->jam_selesai,
-                        'jam_mulai_formatted' => $bookingStart,
-                        'jam_selesai_formatted' => $bookingEnd
-                    ]);
-                }
-            }
-            
-            // Generate available slots by filtering out booked times
-            foreach ($operatingHours as $hour) {
-                $nextHour = date('H:i', strtotime($hour . ' +1 hour'));
-                
-                // Check if this hour slot conflicts with any booking
-                $isBooked = false;
-                foreach ($existingBookings as $booking) {
-                    // Ensure we have valid time data
-                    if (empty($booking->jam_mulai) || empty($booking->jam_selesai)) {
-                        continue;
-                    }
-                    
-                    // Use model accessors for consistent time formatting
-                    $bookingStart = $booking->jam_mulai_formatted;
-                    $bookingEnd = $booking->jam_selesai_formatted;
-                    
-                    // Validate time format before checking conflict
-                    if (!empty($bookingStart) && !empty($bookingEnd) && $bookingStart !== $bookingEnd) {
-                        if ($this->isTimeSlotConflict($hour, $nextHour, $bookingStart, $bookingEnd)) {
-                            $isBooked = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!$isBooked) {
-                    $availableSlots[] = [
-                        'time' => $hour . ' - ' . $nextHour,
-                        'start' => $hour,
-                        'end' => $nextHour,
-                        'available' => true
-                    ];
-                }
-            }
-
-            return response()->json([
-                'success' => true,
-                'lapangan_id' => $lapanganId,
-                'tanggal_booking' => $tanggalBooking,
-                'available_slots' => $availableSlots,
-                'booked_slots' => $bookedSlots,
-                'total_available' => count($availableSlots),
-                'total_booked' => count($bookedSlots),
-                'debug_info' => [
-                    'existing_bookings_count' => $existingBookings->count(),
-                    'operating_hours_count' => count($operatingHours)
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error in getAvailableTimeSlots: ' . $e->getMessage());
-            return response()->json([
-                'error' => 'Server error: ' . $e->getMessage(),
-                'success' => false
-            ], 500);
+        if ($excludeOrderId) {
+            $query->where('id', '!=', $excludeOrderId);
         }
+
+        return $query->where(function ($timeQuery) use ($jamMulai, $jamSelesai) {
+            $this->addTimeConflictConditions($timeQuery, $jamMulai, $jamSelesai);
+        })->first();
     }
 
     /**
-     * Helper method to check if two time slots conflict
+     * Add time conflict conditions to query
      */
-    private function isTimeSlotConflict($startA, $endA, $startB, $endB)
+    private function addTimeConflictConditions($query, $jamMulai, $jamSelesai): void
+    {
+        $query->where(function ($q) use ($jamMulai) {
+                // New start time overlaps with existing booking
+                $q->where('jam_mulai', '<=', $jamMulai)
+                  ->where('jam_selesai', '>', $jamMulai);
+            })
+            ->orWhere(function ($q) use ($jamSelesai) {
+                // New end time overlaps with existing booking  
+                $q->where('jam_mulai', '<', $jamSelesai)
+                  ->where('jam_selesai', '>=', $jamSelesai);
+            })
+            ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
+                // New booking encompasses existing booking
+                $q->where('jam_mulai', '>=', $jamMulai)
+                  ->where('jam_selesai', '<=', $jamSelesai);
+            })
+            ->orWhere(function ($q) use ($jamMulai, $jamSelesai) {
+                // Existing booking encompasses new booking
+                $q->where('jam_mulai', '<=', $jamMulai)
+                  ->where('jam_selesai', '>=', $jamSelesai);
+            });
+    }
+
+    /**
+     * Check if two time slots conflict
+     */
+    private function isTimeSlotConflict($startA, $endA, $startB, $endB): bool
     {
         try {
-            // Convert time strings to comparable format
             $startA = $this->timeToMinutes($startA);
             $endA = $this->timeToMinutes($endA);
             $startB = $this->timeToMinutes($startB);
             $endB = $this->timeToMinutes($endB);
             
-            // Check for overlap: (startA < endB) && (endA > startB)
             return ($startA < $endB) && ($endA > $startB);
         } catch (\Exception $e) {
             Log::error('Error in isTimeSlotConflict: ' . $e->getMessage(), [
-                'startA' => $startA,
-                'endA' => $endA,
-                'startB' => $startB,
-                'endB' => $endB
+                'startA' => $startA, 'endA' => $endA, 'startB' => $startB, 'endB' => $endB
             ]);
-            return false; // Default to no conflict if there's an error
+            return false;
         }
     }
     
     /**
-     * Helper method to convert time to minutes for easier comparison
+     * Convert time to minutes for easier comparison
      */
-    private function timeToMinutes($time)
+    private function timeToMinutes($time): int
     {
-        // Ensure we have a valid time string
         if (empty($time) || !is_string($time)) {
             return 0;
         }
         
         $parts = explode(':', $time);
         
-        // Check if we have at least hour and minute parts
         if (count($parts) < 2) {
             return 0;
         }
