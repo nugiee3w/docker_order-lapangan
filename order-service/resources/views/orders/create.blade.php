@@ -378,6 +378,8 @@ async function fetchAvailableTimeSlots() {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'X-Requested-With': 'XMLHttpRequest',
             },
         });
         
@@ -413,8 +415,13 @@ async function fetchAvailableTimeSlots() {
             
         } else {
             console.error('API Error:', data);
-            availableSlots.innerHTML = '<p class="text-danger">Error: ' + (data.error || 'Gagal memuat jadwal') + '</p>';
-            bookedSlots.innerHTML = '<p class="text-danger">Error: ' + (data.error || 'Gagal memuat jadwal') + '</p>';
+            const errorMsg = data.message || data.error || 'Gagal memuat jadwal';
+            availableSlots.innerHTML = `<div class="alert alert-danger p-2 mb-0">
+                <small><i class="fas fa-exclamation-triangle"></i> Error: ${errorMsg}</small>
+            </div>`;
+            bookedSlots.innerHTML = `<div class="alert alert-danger p-2 mb-0">
+                <small><i class="fas fa-exclamation-triangle"></i> Error: ${errorMsg}</small>
+            </div>`;
         }
         
     } catch (error) {
@@ -425,8 +432,15 @@ async function fetchAvailableTimeSlots() {
             lapangan_id: lapanganSelect.value,
             tanggal_booking: tanggalBooking.value
         });
-        availableSlots.innerHTML = '<p class="text-danger">Gagal memuat jadwal tersedia. Periksa console untuk detail error.</p>';
-        bookedSlots.innerHTML = '<p class="text-danger">Gagal memuat jadwal booking. Periksa console untuk detail error.</p>';
+        
+        const errorMsg = 'Gagal terhubung ke server. Silakan coba lagi.';
+        availableSlots.innerHTML = `<div class="alert alert-warning p-2 mb-0">
+            <small><i class="fas fa-wifi"></i> ${errorMsg}</small>
+            <br><small class="text-muted">Periksa console browser untuk detail teknis.</small>
+        </div>`;
+        bookedSlots.innerHTML = `<div class="alert alert-warning p-2 mb-0">
+            <small><i class="fas fa-wifi"></i> ${errorMsg}</small>
+        </div>`;
     }
 }
 
