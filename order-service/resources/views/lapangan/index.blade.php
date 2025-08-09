@@ -37,8 +37,12 @@
             <!-- Header dengan gambar lapangan -->
             <div class="card-header p-0">
                 <div class="position-relative">
-                    @if(isset($lapangan['image']) && $lapangan['image'])
-                        <img src="{{ $lapangan['image'] }}" class="card-img-top" style="height: 200px; object-fit: cover;" alt="{{ $lapangan['nama'] }}" loading="lazy" 
+                    @if(isset($lapangan['gambar']) && $lapangan['gambar'])
+                        <img src="http://localhost:8001/storage/{{ $lapangan['gambar'] }}" 
+                             class="card-img-top" 
+                             style="height: 200px; object-fit: cover;" 
+                             alt="{{ $lapangan['nama'] }}" 
+                             loading="lazy" 
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="d-none align-items-center justify-content-center" style="height: 200px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                             @if($lapangan['jenis'] == 'futsal')
@@ -267,6 +271,20 @@
     100% { background-position: -200% 0; }
 }
 
+/* Optimasi untuk gambar yang gagal dimuat */
+.card-img-top {
+    transition: opacity 0.3s ease;
+}
+
+.card-img-top[style*="display: none"] + div {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 /* Responsif untuk mobile */
 @media (max-width: 768px) {
     .card-img-top {
@@ -282,4 +300,23 @@
     }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Debug gambar loading
+    const images = document.querySelectorAll('.card-img-top');
+    images.forEach((img, index) => {
+        console.log(`Image ${index + 1}: ${img.src}`);
+        
+        img.addEventListener('load', function() {
+            console.log(`✅ Image ${index + 1} loaded successfully: ${this.src}`);
+        });
+        
+        img.addEventListener('error', function() {
+            console.log(`❌ Image ${index + 1} failed to load: ${this.src}`);
+            console.log('Showing fallback icon...');
+        });
+    });
+});
+</script>
 @endsection

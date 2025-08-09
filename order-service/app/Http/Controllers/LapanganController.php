@@ -76,15 +76,18 @@ class LapanganController extends Controller
             $lapangans = $dummyLapangans;
         }
         
-        // Convert harga_per_jam ke integer jika berupa string dan tambahkan gambar Unsplash
+        // Convert harga_per_jam ke integer jika berupa string
         foreach ($lapangans as &$lapangan) {
             if (isset($lapangan['harga_per_jam']) && is_string($lapangan['harga_per_jam'])) {
                 $lapangan['harga_per_jam'] = (int) $lapangan['harga_per_jam'];
             }
             
-            // Tambahkan gambar Unsplash jika belum ada
-            if (!isset($lapangan['image']) || empty($lapangan['image'])) {
-                $lapangan['image'] = $this->getUnsplashImageByJenis($lapangan['jenis'] ?? 'futsal', $lapangan['id'] ?? rand(1, 1000));
+            // Gunakan gambar dari API jika ada, jika tidak baru gunakan Unsplash
+            if (!isset($lapangan['gambar']) || empty($lapangan['gambar'])) {
+                // Tidak ada gambar dari API, gunakan gambar Unsplash sebagai fallback
+                if (!isset($lapangan['image']) || empty($lapangan['image'])) {
+                    $lapangan['image'] = $this->getUnsplashImageByJenis($lapangan['jenis'] ?? 'futsal', $lapangan['id'] ?? rand(1, 1000));
+                }
             }
         }
         
@@ -137,9 +140,12 @@ class LapanganController extends Controller
             }
             
             if ($lapangan) {
-                // Tambahkan gambar Unsplash jika belum ada
-                if (!isset($lapangan['image']) || empty($lapangan['image'])) {
-                    $lapangan['image'] = $this->getUnsplashImageByJenis($lapangan['jenis'] ?? 'futsal', $lapangan['id'] ?? rand(1, 1000));
+                // Gunakan gambar dari API jika ada, jika tidak baru gunakan Unsplash
+                if (!isset($lapangan['gambar']) || empty($lapangan['gambar'])) {
+                    // Tidak ada gambar dari API, gunakan gambar Unsplash sebagai fallback
+                    if (!isset($lapangan['image']) || empty($lapangan['image'])) {
+                        $lapangan['image'] = $this->getUnsplashImageByJenis($lapangan['jenis'] ?? 'futsal', $lapangan['id'] ?? rand(1, 1000));
+                    }
                 }
                 
                 // Ambil semua pesanan untuk lapangan ini

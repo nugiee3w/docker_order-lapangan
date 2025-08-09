@@ -22,8 +22,12 @@
         <div class="card shadow">
             <div class="row g-0">
                 <div class="col-md-4">
-                    @if(isset($lapangan['image']) && $lapangan['image'])
-                        <img src="{{ $lapangan['image'] }}" class="img-fluid rounded-start h-100" style="object-fit: cover;" alt="{{ $lapangan['nama'] }}" loading="lazy"
+                    @if(isset($lapangan['gambar']) && $lapangan['gambar'])
+                        <img src="http://localhost:8001/storage/{{ $lapangan['gambar'] }}" 
+                             class="img-fluid rounded-start h-100" 
+                             style="object-fit: cover;" 
+                             alt="{{ $lapangan['nama'] }}" 
+                             loading="lazy"
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="d-none align-items-center justify-content-center h-100 rounded-start" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 300px;">
                             @if($lapangan['jenis'] == 'futsal')

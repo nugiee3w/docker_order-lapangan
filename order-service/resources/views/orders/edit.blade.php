@@ -1,6 +1,20 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Pemesanan #' . $order->order_number)
+@section('title', 'Edit Pemesanan #' . $order->orde                                        @foreach($lapangan_list as $lapangan)
+                                            <option value="{{ $lapangan['id'] }}" 
+                                                    data-harga="{{ (float)$lapangan['harga_per_jam'] }}"
+                                                    data-nama="{{ $lapangan['nama'] }}"
+                                                    data-jenis="{{ $lapangan['jenis'] }}"
+                                                    data-lokasi="{{ $lapangan['lokasi'] ?? 'Tidak tersedia' }}"
+                                                    data-fasilitas="{{ is_array($lapangan['fasilitas']) ? implode(', ', $lapangan['fasilitas']) : $lapangan['fasilitas'] }}"
+                                                    data-deskripsi="{{ $lapangan['deskripsi'] ?? 'Tidak ada deskripsi' }}"
+                                                    data-status="{{ $lapangan['status'] }}"
+                                                    data-gambar="{{ $lapangan['gambar'] ?? '' }}"
+                                                    {{ old('lapangan_id', $order->lapangan_id) == $lapangan['id'] ? 'selected' : '' }}>
+                                                {{ $lapangan['nama'] }} - {{ ucfirst($lapangan['jenis']) }} 
+                                                (Rp {{ number_format((float)$lapangan['harga_per_jam'], 0, ',', '.') }}/jam)
+                                            </option>
+                                        @endforeachber)
 
 @section('content')
 <div class="container-fluid px-4">

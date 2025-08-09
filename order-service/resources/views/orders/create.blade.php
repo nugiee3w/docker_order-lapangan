@@ -2,6 +2,76 @@
 
 @section('title', 'Tambah Pemesanan Baru')
 
+@section('styles')
+<style>
+    .card {
+        transition: all 0.3s ease;
+    }
+    
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
+    }
+    
+    .badge {
+        font-size: 0.85em;
+        padding: 0.35em 0.65em;
+    }
+    
+    .animate__fadeIn {
+        animation-duration: 0.5s;
+    }
+    
+    #lapangan-details .card-header {
+        border-radius: 0.375rem 0.375rem 0 0;
+    }
+    
+    #detail-gambar {
+        border: 3px solid #dee2e6;
+        transition: all 0.3s ease;
+    }
+    
+    #detail-gambar:hover {
+        border-color: #007bff;
+        transform: scale(1.05);
+    }
+    
+    .facility-badge {
+        margin: 2px;
+        transition: all 0.2s ease;
+    }
+    
+    .facility-badge:hover {
+        transform: scale(1.1);
+    }
+    
+    .status-indicator {
+        position: relative;
+        display: inline-block;
+    }
+    
+    .status-indicator::before {
+        content: '';
+        position: absolute;
+        left: -15px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #28a745;
+    }
+    
+    .status-maintenance::before {
+        background: #ffc107;
+    }
+    
+    .status-unavailable::before {
+        background: #dc3545;
+    }
+</style>
+@endsection
+
 @section('content')
 <div class="container-fluid px-4">
     <!-- Page Heading -->
@@ -73,6 +143,13 @@
                                         @foreach($lapangan_list as $lapangan)
                                             <option value="{{ $lapangan['id'] }}" 
                                                     data-harga="{{ (float)$lapangan['harga_per_jam'] }}"
+                                                    data-nama="{{ $lapangan['nama'] }}"
+                                                    data-jenis="{{ $lapangan['jenis'] }}"
+                                                    data-lokasi="{{ $lapangan['lokasi'] ?? 'Tidak tersedia' }}"
+                                                    data-fasilitas="{{ is_array($lapangan['fasilitas']) ? implode(', ', $lapangan['fasilitas']) : $lapangan['fasilitas'] }}"
+                                                    data-deskripsi="{{ $lapangan['deskripsi'] ?? 'Tidak ada deskripsi' }}"
+                                                    data-status="{{ $lapangan['status'] }}"
+                                                    data-gambar="{{ $lapangan['gambar'] ?? '' }}"
                                                     {{ old('lapangan_id') == $lapangan['id'] ? 'selected' : '' }}>
                                                 {{ $lapangan['nama'] }} - {{ ucfirst($lapangan['jenis']) }} 
                                                 (Rp {{ number_format((float)$lapangan['harga_per_jam'], 0, ',', '.') }}/jam)
@@ -163,6 +240,88 @@
                                 @error('total_harga')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Lapangan Details Display -->
+                        <div class="row mb-4" id="lapangan-details" style="display: none;">
+                            <div class="col-12">
+                                <h5 class="text-primary border-bottom pb-2">
+                                    <i class="fas fa-info-circle"></i> Detail Lapangan
+                                </h5>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card border-primary">
+                                    <div class="card-header bg-primary text-white">
+                                        <h6 class="mb-0"><i class="fas fa-futbol"></i> Informasi Umum</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-sm-4"><strong>Nama:</strong></div>
+                                            <div class="col-sm-8" id="detail-nama">-</div>
+                                        </div>
+                                        <hr class="my-2">
+                                        <div class="row">
+                                            <div class="col-sm-4"><strong>Jenis:</strong></div>
+                                            <div class="col-sm-8">
+                                                <span class="badge bg-info" id="detail-jenis">-</span>
+                                            </div>
+                                        </div>
+                                        <hr class="my-2">
+                                        <div class="row">
+                                            <div class="col-sm-4"><strong>Lokasi:</strong></div>
+                                            <div class="col-sm-8">
+                                                <i class="fas fa-map-marker-alt text-danger"></i>
+                                                <span id="detail-lokasi">-</span>
+                                            </div>
+                                        </div>
+                                        <hr class="my-2">
+                                        <div class="row">
+                                            <div class="col-sm-4"><strong>Status:</strong></div>
+                                            <div class="col-sm-8">
+                                                <span class="badge" id="detail-status">-</span>
+                                            </div>
+                                        </div>
+                                        <hr class="my-2">
+                                        <div class="row">
+                                            <div class="col-sm-4"><strong>Harga:</strong></div>
+                                            <div class="col-sm-8">
+                                                <span class="text-success fw-bold" id="detail-harga">-</span>
+                                                <small class="text-muted">/jam</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card border-success">
+                                    <div class="card-header bg-success text-white">
+                                        <h6 class="mb-0"><i class="fas fa-tools"></i> Fasilitas & Deskripsi</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <strong>Fasilitas Tersedia:</strong>
+                                            <div id="detail-fasilitas" class="mt-2">
+                                                <span class="text-muted">Pilih lapangan untuk melihat fasilitas</span>
+                                            </div>
+                                        </div>
+                                        <hr>
+                                        <div>
+                                            <strong>Deskripsi:</strong>
+                                            <p id="detail-deskripsi" class="mt-2 text-muted">
+                                                Pilih lapangan untuk melihat deskripsi
+                                            </p>
+                                        </div>
+                                        <div id="detail-gambar-container" class="mt-3" style="display: none;">
+                                            <strong>Preview:</strong>
+                                            <div class="mt-2">
+                                                <img id="detail-gambar" class="img-thumbnail rounded" 
+                                                     style="max-width: 200px; max-height: 150px; object-fit: cover;" 
+                                                     alt="Gambar Lapangan">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -501,6 +660,106 @@ function isTimeOverlap(startA, endA, startB, endB) {
     return (startA < endB) && (endA > startB);
 }
 
+// Function to display lapangan details dynamically
+function displayLapanganDetails() {
+    const lapanganSelect = document.getElementById('lapangan_id');
+    const selectedOption = lapanganSelect.selectedOptions[0];
+    const detailsContainer = document.getElementById('lapangan-details');
+    
+    if (!selectedOption || !selectedOption.value) {
+        // Hide details container if no lapangan selected
+        detailsContainer.style.display = 'none';
+        return;
+    }
+    
+    // Show details container
+    detailsContainer.style.display = 'block';
+    
+    // Get data attributes
+    const nama = selectedOption.getAttribute('data-nama') || '-';
+    const jenis = selectedOption.getAttribute('data-jenis') || '-';
+    const lokasi = selectedOption.getAttribute('data-lokasi') || 'Tidak tersedia';
+    const fasilitas = selectedOption.getAttribute('data-fasilitas') || 'Tidak ada fasilitas';
+    const deskripsi = selectedOption.getAttribute('data-deskripsi') || 'Tidak ada deskripsi';
+    const status = selectedOption.getAttribute('data-status') || 'unknown';
+    const harga = selectedOption.getAttribute('data-harga') || '0';
+    const gambar = selectedOption.getAttribute('data-gambar') || '';
+    
+    // Update detail elements
+    document.getElementById('detail-nama').textContent = nama;
+    document.getElementById('detail-jenis').textContent = jenis.charAt(0).toUpperCase() + jenis.slice(1);
+    document.getElementById('detail-lokasi').textContent = lokasi;
+    
+    // Update status badge with appropriate color
+    const statusElement = document.getElementById('detail-status');
+    statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    statusElement.className = 'badge ' + getStatusBadgeClass(status);
+    
+    // Format and display harga
+    const hargaFormatted = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0
+    }).format(parseFloat(harga));
+    document.getElementById('detail-harga').textContent = hargaFormatted;
+    
+    // Display fasilitas as badges
+    const fasilitasContainer = document.getElementById('detail-fasilitas');
+    if (fasilitas && fasilitas !== 'Tidak ada fasilitas') {
+        const fasilitasList = fasilitas.split(', ');
+        fasilitasContainer.innerHTML = fasilitasList.map(f => 
+            `<span class="badge bg-primary facility-badge me-1 mb-1">${f.trim()}</span>`
+        ).join('');
+    } else {
+        fasilitasContainer.innerHTML = '<span class="text-muted">Tidak ada fasilitas tersedia</span>';
+    }
+    
+    // Display deskripsi
+    const deskripsiElement = document.getElementById('detail-deskripsi');
+    deskripsiElement.textContent = deskripsi;
+    deskripsiElement.className = deskripsi === 'Tidak ada deskripsi' ? 'mt-2 text-muted fst-italic' : 'mt-2';
+    
+    // Handle gambar
+    const gambarContainer = document.getElementById('detail-gambar-container');
+    const gambarElement = document.getElementById('detail-gambar');
+    
+    if (gambar && gambar.trim() !== '') {
+        // Construct full image URL
+        const imageUrl = `http://localhost:8001/storage/${gambar}`;
+        gambarElement.src = imageUrl;
+        gambarElement.onerror = function() {
+            // If image fails to load, hide container
+            gambarContainer.style.display = 'none';
+        };
+        gambarElement.onload = function() {
+            // Show container when image loads successfully
+            gambarContainer.style.display = 'block';
+        };
+    } else {
+        gambarContainer.style.display = 'none';
+    }
+    
+    // Add animation effect
+    detailsContainer.classList.add('animate__animated', 'animate__fadeIn');
+    setTimeout(() => {
+        detailsContainer.classList.remove('animate__animated', 'animate__fadeIn');
+    }, 1000);
+}
+
+// Helper function to get appropriate badge class for status
+function getStatusBadgeClass(status) {
+    switch(status.toLowerCase()) {
+        case 'tersedia':
+            return 'bg-success';
+        case 'maintenance':
+            return 'bg-warning text-dark';
+        case 'tidak_tersedia':
+            return 'bg-danger';
+        default:
+            return 'bg-secondary';
+    }
+}
+
 // Event listeners setup
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM Content Loaded - Setting up event listeners');
@@ -512,6 +771,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (lapanganSelect) {
         console.log('Adding change listener to lapangan');
         lapanganSelect.addEventListener('change', function() {
+            displayLapanganDetails();
             calculateTotal();
             fetchAvailableTimeSlots();
         });
@@ -543,6 +803,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Test initial calculation
     console.log('Running initial calculation test...');
     calculateTotal();
+    
+    // Check if lapangan is already selected (for edit mode or validation errors)
+    if (lapanganSelect && lapanganSelect.value) {
+        displayLapanganDetails();
+        fetchAvailableTimeSlots();
+    }
 });
 </script>
 @endsection
