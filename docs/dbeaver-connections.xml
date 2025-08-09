@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data-sources>
+    <!-- Order Service Database Configuration -->
+    <data-source id="order-service-db" provider="mysql" driver="mysql8" name="Order Service" save-password="true" 
+                 show-system-objects="true" show-util-objects="true" folder="Docker OrderLapangan">
+        <connection host="localhost" port="3307" server="" database="order_service" 
+                    url="jdbc:mysql://localhost:3307/order_service" user="order_user" type="dev">
+            <property name="allowMultiQueries" value="true"/>
+            <property name="useSSL" value="false"/>
+            <property name="allowPublicKeyRetrieval" value="true"/>
+            <property name="serverTimezone" value="Asia/Jakarta"/>
+            <property name="useUnicode" value="true"/>
+            <property name="characterEncoding" value="UTF8"/>
+        </connection>
+    </data-source>
+    
+    <!-- Lapangan Service Database Configuration -->
+    <data-source id="lapangan-service-db" provider="mysql" driver="mysql8" name="Lapangan Service" save-password="true" 
+                 show-system-objects="true" show-util-objects="true" folder="Docker OrderLapangan">
+        <connection host="localhost" port="3308" server="" database="lapangan_service" 
+                    url="jdbc:mysql://localhost:3308/lapangan_service" user="lapangan_user" type="dev">
+            <property name="allowMultiQueries" value="true"/>
+            <property name="useSSL" value="false"/>
+            <property name="allowPublicKeyRetrieval" value="true"/>
+            <property name="serverTimezone" value="Asia/Jakarta"/>
+            <property name="useUnicode" value="true"/>
+            <property name="characterEncoding" value="UTF8"/>
+        </connection>
+    </data-source>
+</data-sources>

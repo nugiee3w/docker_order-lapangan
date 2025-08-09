@@ -1,0 +1,88 @@
+# 🗂️ Laravel Defaults (untuk semua service)
+**/vendor/
+**/node_modules/
+**/storage/
+**/public/storage
+**/.env
+**/.phpunit.result.cache
+**/Homestead.json
+**/Homestead.yaml
+**/.DS_Store
+
+# 💾 Logs & SQLite
+**/*.log
+**/*.sqlite
+**/*.pid
+
+# 🐳 Docker files (optional)
+*.pid
+*.sock
+docker/*.sock
+docker/*.pid
+**/docker/volumes/
+**/docker/data/
+
+# 🧪 VSCode / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 📦 Backup / dump
+**/dump.sql
+**/backup.sql
+**/database/backup.sql
+
+# 🔐 Kunci pribadi atau sementara
+**/*.key
+**/.env.backup
+**/.env.local
+**/.env.production
+
+# 🧹 Laravel Cache & Framework
+**/bootstrap/cache/*
+!**/bootstrap/cache/.gitkeep
+**/storage/framework/cache/*
+!**/storage/framework/cache/.gitkeep
+**/storage/framework/sessions/*
+!**/storage/framework/sessions/.gitkeep
+**/storage/framework/views/*
+!**/storage/framework/views/.gitkeep
+
+# 🗄️ Database Tools
+*.sql.backup
+*.sql.dump
+**/.dbeaver/
+**/dbeaver-workspace/
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+!**/storage/framework/views/.gitkeep
+**/storage/logs/*
+!**/storage/logs/.gitkeep
+
+# 📁 Composer & Node
+composer.phar
+**/composer.lock
+package-lock.json
+**/mix-manifest.json
+**/public/mix-manifest.json
+
+# 🧪 Testing & Coverage
+**/coverage/
+**/.phpunit.cache
+**/phpunit.xml
+!**/phpunit.xml.example
+
+# 🔧 OS & Editor
+Thumbs.db
+.DS_Store
+*.tmp
+*.temp
+
+# 🚀 Deployment
+**/public/hot
+**/public/storage
+**/storage/app/public/*
+!**/storage/app/public/.gitkeep

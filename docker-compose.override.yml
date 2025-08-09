@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Order Service - Development Override
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile.simple  # Use simple dockerfile for development
+    environment:
+      - APP_NAME=${ORDER_APP_NAME}
+      - APP_ENV=${ORDER_APP_ENV}
+      - APP_DEBUG=${ORDER_APP_DEBUG}
+      - APP_URL=${ORDER_APP_URL}
+      - APP_KEY=${ORDER_APP_KEY}
+      - DB_CONNECTION=${ORDER_DB_CONNECTION}
+      - DB_HOST=${ORDER_DB_HOST}
+      - DB_PORT=${ORDER_DB_PORT}
+      - DB_DATABASE=${ORDER_DB_DATABASE}
+      - DB_USERNAME=${ORDER_DB_USERNAME}
+      - DB_PASSWORD=${ORDER_DB_PASSWORD}
+    volumes:
+      # Mount source code for development (hot reload)
+      - ./order-service:/var/www/html:cached
+      # Exclude vendor folder to avoid conflicts
+      - /var/www/html/vendor
+    ports:
+      - "${ORDER_SERVICE_PORT}:80"
+
+  # Lapangan Service - Development Override  
+  lapangan-service:
+    build:
+      context: ./lapangan-service
+      dockerfile: Dockerfile.simple  # Use simple dockerfile for development
+    environment:
+      - APP_NAME=${LAPANGAN_APP_NAME}
+      - APP_ENV=${LAPANGAN_APP_ENV}
+      - APP_DEBUG=${LAPANGAN_APP_DEBUG}
+      - APP_URL=${LAPANGAN_APP_URL}
+      - APP_KEY=${LAPANGAN_APP_KEY}
+      - DB_CONNECTION=${LAPANGAN_DB_CONNECTION}
+      - DB_HOST=${LAPANGAN_DB_HOST}
+      - DB_PORT=${LAPANGAN_DB_PORT}
+      - DB_DATABASE=${LAPANGAN_DB_DATABASE}
+      - DB_USERNAME=${LAPANGAN_DB_USERNAME}
+      - DB_PASSWORD=${LAPANGAN_DB_PASSWORD}
+    volumes:
+      # Mount source code for development (hot reload)
+      - ./lapangan-service:/var/www/html:cached
+      # Exclude vendor folder to avoid conflicts
+      - /var/www/html/vendor
+    ports:
+      - "${LAPANGAN_SERVICE_PORT}:80"
+
+  # Order Database - Development Override
+  order-db:
+    environment:
+      MYSQL_DATABASE: ${ORDER_DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${ORDER_DB_PASSWORD}
+    ports:
+      - "${ORDER_DB_EXTERNAL_PORT}:3306"
+
+  # Lapangan Database - Development Override
+  lapangan-db:
+    environment:
+      MYSQL_DATABASE: ${LAPANGAN_DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${LAPANGAN_DB_PASSWORD}
+    ports:
+      - "${LAPANGAN_DB_EXTERNAL_PORT}:3306"

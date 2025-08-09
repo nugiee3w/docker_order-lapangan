@@ -1,0 +1,579 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Order;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Carbon\Carbon;
+
+class WebController extends Controller
+{
+    public function dashboard()
+    {
+        $totalOrders = Order::count();
+        $ordersToday = Order::whereDate('created_at', today())->count();
+        $pendingOrders = Order::where('status', 'pending')->co                [
+                    'id' => 2,
+                    'nama' => 'Lapangan Badminton B',
+                    'jenis' => 'Badminton',
+                    'lokasi' => 'Gedung B',
+                    'harga_per_jam' => 80000,
+                    'fasilitas' => ['AC', 'Net Baru']
+                ],
+                [
+                    'id' => 3,
+                    'nama' => 'Lapangan Basket Outdoor',
+                    'jenis' => 'Basket',
+                    'lokasi' => 'Area Outdoor',
+                    'harga_per_jam' => 120000,
+                    'fasilitas' => ['Ring Standar', 'Lapangan Bersertifikat']
+                ],
+                [
+                    'id' => 4,
+                    'nama' => 'Lapangan Badminton C',
+                    'jenis' => 'Badminton',
+                    'lokasi' => 'Gedung C Lantai 1',
+                    'harga_per_jam' => 75000,
+                    'fasilitas' => ['AC', 'Net Premium', 'Lantai Wooden']
+                ],
+                [
+                    'id' => 5,
+                    'nama' => 'Lapangan Badminton D',
+                    'jenis' => 'Badminton',
+                    'lokasi' => 'Gedung D Lantai 2',
+                    'harga_per_jam' => 90000,
+                    'fasilitas' => ['AC', 'Sound System', 'Net Tournament Grade']
+                ]
+            ];
+        }      $confirmedOrders = Order::where('status', 'confirmed')->count();
+        $cancelledOrders = Order::where('status', 'cancelled')->count();
+        
+        // Revenue statistics
+        $totalRevenue = Order::where('status', 'confirmed')->sum('total_harga');
+        $revenueToday = Order::where('status', 'confirmed')
+                            ->whereDate('created_at', today())
+                            ->sum('total_harga');
+        
+        // Recent orders with lapangan info
+        $recentOrders = Order::orderBy('created_at', 'desc')
+                            ->take(10)
+                            ->get();
+
+        // Get lapangan info for each recent order
+        foreach ($recentOrders as $order) {
+            if ($order->lapangan_id) {
+                try {
+                    $response = Http::timeout(10)->get("http://lapangan-service:80/api/lapangan/{$order->lapangan_id}");
+                    if ($response->successful()) {
+                        $responseData = $response->json();
+                        if (isset($responseData['data'])) {
+                            $lapanganData = $responseData['data'];
+                            $order->lapangan_info = [
+                                'nama' => $lapanganData['nama'] ?? 'N/A',
+                                'jenis' => ucfirst($lapanganData['jenis'] ?? 'N/A'),
+                                'lokasi' => $lapanganData['lokasi'] ?? 'N/A'
+                            ];
+                        } else {
+                            $order->lapangan_info = [
+                                'nama' => 'Data tidak lengkap',
+                                'jenis' => 'N/A',
+                                'lokasi' => 'N/A'
+                            ];
+                        }
+                    } else {
+                        // Try fallback data for dashboard
+                        $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                        if ($fallbackLapangan) {
+                            $order->lapangan_info = [
+                                'nama' => $fallbackLapangan['nama'],
+                                'jenis' => ucfirst($fallbackLapangan['jenis']),
+                                'lokasi' => $fallbackLapangan['lokasi']
+                            ];
+                        } else {
+                            $order->lapangan_info = [
+                                'nama' => 'Lapangan tidak ditemukan',
+                                'jenis' => 'N/A',
+                                'lokasi' => 'N/A'
+                            ];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Try fallback data for dashboard
+                    $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                    if ($fallbackLapangan) {
+                        $order->lapangan_info = [
+                            'nama' => $fallbackLapangan['nama'],
+                            'jenis' => ucfirst($fallbackLapangan['jenis']),
+                            'lokasi' => $fallbackLapangan['lokasi']
+                        ];
+                    } else {
+                        $order->lapangan_info = [
+                            'nama' => 'Error loading lapangan',
+                            'jenis' => 'N/A',
+                            'lokasi' => 'N/A'
+                        ];
+                    }
+                }
+            } else {
+                $order->lapangan_info = [
+                    'nama' => 'ID lapangan kosong',
+                    'jenis' => 'N/A',
+                    'lokasi' => 'N/A'
+                ];
+            }
+        }
+
+        // Statistics array for view
+        $stats = [
+            'total_orders' => $totalOrders,
+            'orders_today' => $ordersToday,
+            'pending_orders' => $pendingOrders,
+            'confirmed_orders' => $confirmedOrders,
+            'cancelled_orders' => $cancelledOrders,
+            'total_revenue' => $totalRevenue,
+            'revenue_today' => $revenueToday
+        ];
+
+        return view('dashboard', compact('stats', 'recentOrders'));
+    }
+
+    public function orders(Request $request)
+    {
+        $query = Order::query();
+        
+        // Filter by status
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        // Filter by payment status
+        if ($request->filled('payment_status')) {
+            $query->where('payment_status', $request->payment_status);
+        }
+        
+        // Filter by date range
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+        
+        // Filter by search
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('customer_name', 'like', "%{$search}%")
+                  ->orWhere('customer_email', 'like', "%{$search}%")
+                  ->orWhere('customer_phone', 'like', "%{$search}%")
+                  ->orWhere('order_number', 'like', "%{$search}%");
+            });
+        }
+        
+        $orders = $query->orderBy('created_at', 'desc')->paginate(15);
+        
+        // Get lapangan info for each order
+        foreach ($orders as $order) {
+            if ($order->lapangan_id) {
+                try {
+                    $response = Http::timeout(10)->get("http://lapangan-service:80/api/lapangan/{$order->lapangan_id}");
+                    if ($response->successful()) {
+                        $responseData = $response->json();
+                        if (isset($responseData['data'])) {
+                            $lapanganData = $responseData['data'];
+                            $order->lapangan_info = [
+                                'nama' => $lapanganData['nama'] ?? 'N/A',
+                                'jenis' => ucfirst($lapanganData['jenis'] ?? 'N/A'),
+                                'lokasi' => $lapanganData['lokasi'] ?? 'N/A',
+                                'harga_per_jam' => (float)($lapanganData['harga_per_jam'] ?? 0),
+                                'fasilitas' => is_string($lapanganData['fasilitas'] ?? '') 
+                                    ? json_decode($lapanganData['fasilitas'], true) 
+                                    : ($lapanganData['fasilitas'] ?? [])
+                            ];
+                        } else {
+                            $order->lapangan_info = [
+                                'nama' => 'Data tidak lengkap',
+                                'jenis' => 'N/A',
+                                'lokasi' => 'N/A'
+                            ];
+                        }
+                    } else {
+                        // Try fallback data for orders list
+                        $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                        if ($fallbackLapangan) {
+                            $order->lapangan_info = [
+                                'nama' => $fallbackLapangan['nama'],
+                                'jenis' => ucfirst($fallbackLapangan['jenis']),
+                                'lokasi' => $fallbackLapangan['lokasi']
+                            ];
+                        } else {
+                            $order->lapangan_info = [
+                                'nama' => 'Lapangan tidak ditemukan',
+                                'jenis' => 'N/A',
+                                'lokasi' => 'N/A'
+                            ];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Try fallback data for orders list
+                    $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                    if ($fallbackLapangan) {
+                        $order->lapangan_info = [
+                            'nama' => $fallbackLapangan['nama'],
+                            'jenis' => ucfirst($fallbackLapangan['jenis']),
+                            'lokasi' => $fallbackLapangan['lokasi']
+                        ];
+                    } else {
+                        $order->lapangan_info = [
+                            'nama' => 'Error loading lapangan',
+                            'jenis' => 'N/A',
+                            'lokasi' => 'N/A'
+                        ];
+                    }
+                }
+            } else {
+                $order->lapangan_info = [
+                    'nama' => 'ID lapangan kosong',
+                    'jenis' => 'N/A',
+                    'lokasi' => 'N/A'
+                ];
+            }
+        }
+        
+        return view('orders.index', compact('orders'));
+    }
+
+    public function show($id)
+    {
+        $order = Order::findOrFail($id);
+        
+        // Debug log
+        \Log::info("Showing order ID: {$id}, Lapangan ID: {$order->lapangan_id}");
+        
+        // Get lapangan info
+        if ($order->lapangan_id) {
+            try {
+                $url = "http://lapangan-service:80/api/lapangan/{$order->lapangan_id}";
+                \Log::info("Attempting to fetch lapangan from: {$url}");
+                
+                $response = Http::timeout(10)->get($url);
+                
+                \Log::info("Response status: " . $response->status());
+                \Log::info("Response body: " . $response->body());
+                
+                if ($response->successful()) {
+                    $responseData = $response->json();
+                    if (isset($responseData['data'])) {
+                        $lapanganData = $responseData['data'];
+                        $order->lapangan_info = [
+                            'nama' => $lapanganData['nama'] ?? 'N/A',
+                            'jenis' => ucfirst($lapanganData['jenis'] ?? 'N/A'),
+                            'lokasi' => $lapanganData['lokasi'] ?? 'N/A',
+                            'harga_per_jam' => (float)($lapanganData['harga_per_jam'] ?? 0),
+                            'fasilitas' => is_string($lapanganData['fasilitas'] ?? '') 
+                                ? json_decode($lapanganData['fasilitas'], true) 
+                                : ($lapanganData['fasilitas'] ?? []),
+                            'status' => ucfirst($lapanganData['status'] ?? 'N/A')
+                        ];
+                    } else {
+                        $order->lapangan_info = [
+                            'nama' => 'Data lapangan tidak lengkap',
+                            'jenis' => 'N/A',
+                            'lokasi' => 'N/A',
+                            'harga_per_jam' => 0,
+                            'fasilitas' => []
+                        ];
+                    }
+                } else {
+                    // Try fallback: check if lapangan ID exists in our fallback data
+                    $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                    if ($fallbackLapangan) {
+                        $order->lapangan_info = [
+                            'nama' => $fallbackLapangan['nama'],
+                            'jenis' => ucfirst($fallbackLapangan['jenis']),
+                            'lokasi' => $fallbackLapangan['lokasi'],
+                            'harga_per_jam' => (float)$fallbackLapangan['harga_per_jam'],
+                            'fasilitas' => $fallbackLapangan['fasilitas'],
+                            'status' => 'Aktif'
+                        ];
+                    } else {
+                        $order->lapangan_info = [
+                            'nama' => 'Lapangan tidak ditemukan (HTTP ' . $response->status() . ')',
+                            'jenis' => 'N/A',
+                            'lokasi' => 'N/A',
+                            'harga_per_jam' => 0,
+                            'fasilitas' => []
+                        ];
+                    }
+                }
+            } catch (\Exception $e) {
+                \Log::error("Error fetching lapangan: " . $e->getMessage());
+                
+                // Try fallback data
+                $fallbackLapangan = $this->getFallbackLapanganById($order->lapangan_id);
+                if ($fallbackLapangan) {
+                    $order->lapangan_info = [
+                        'nama' => $fallbackLapangan['nama'],
+                        'jenis' => ucfirst($fallbackLapangan['jenis']),
+                        'lokasi' => $fallbackLapangan['lokasi'],
+                        'harga_per_jam' => (float)$fallbackLapangan['harga_per_jam'],
+                        'fasilitas' => $fallbackLapangan['fasilitas'],
+                        'status' => 'Aktif'
+                    ];
+                } else {
+                    $order->lapangan_info = [
+                        'nama' => 'Error: ' . $e->getMessage(),
+                        'jenis' => 'N/A',
+                        'lokasi' => 'N/A',
+                        'harga_per_jam' => 0,
+                        'fasilitas' => []
+                    ];
+                }
+            }
+        } else {
+            $order->lapangan_info = [
+                'nama' => 'ID lapangan tidak tersedia',
+                'jenis' => 'N/A',
+                'lokasi' => 'N/A',
+                'harga_per_jam' => 0,
+                'fasilitas' => []
+            ];
+        }
+        
+        return view('orders.show', compact('order'));
+    }
+    
+    /**
+     * Get fallback lapangan data by ID
+     */
+    private function getFallbackLapanganById($id)
+    {
+        $fallbackData = [
+            1 => [
+                'id' => 1,
+                'nama' => 'Lapangan Futsal A',
+                'jenis' => 'futsal',
+                'lokasi' => 'Gedung A Lantai 1',
+                'harga_per_jam' => 100000,
+                'fasilitas' => ['AC', 'Sound System', 'Scoreboard']
+            ],
+            2 => [
+                'id' => 2,
+                'nama' => 'Lapangan Badminton B',
+                'jenis' => 'badminton',
+                'lokasi' => 'Gedung B Lantai 2',
+                'harga_per_jam' => 80000,
+                'fasilitas' => ['AC', 'Net Berkualitas', 'Pencahayaan LED']
+            ],
+            3 => [
+                'id' => 3,
+                'nama' => 'Lapangan Basket Outdoor',
+                'jenis' => 'basket',
+                'lokasi' => 'Area Outdoor',
+                'harga_per_jam' => 120000,
+                'fasilitas' => ['Ring Standar', 'Lapangan Bersertifikat']
+            ],
+            4 => [
+                'id' => 4,
+                'nama' => 'Lapangan Badminton C',
+                'jenis' => 'badminton',
+                'lokasi' => 'Gedung C Lantai 1',
+                'harga_per_jam' => 75000,
+                'fasilitas' => ['AC', 'Net Premium', 'Lantai Wooden']
+            ],
+            5 => [
+                'id' => 5,
+                'nama' => 'Lapangan Badminton D',
+                'jenis' => 'badminton',
+                'lokasi' => 'Gedung D Lantai 2',
+                'harga_per_jam' => 90000,
+                'fasilitas' => ['AC', 'Sound System', 'Net Tournament Grade']
+            ]
+        ];
+        
+        return $fallbackData[$id] ?? null;
+    }
+
+    public function edit($id)
+    {
+        $order = Order::findOrFail($id);
+        
+        // Get lapangan list
+        try {
+            $response = Http::timeout(10)->get("http://lapangan-service:80/api/lapangan");
+            if ($response->successful()) {
+                $responseData = $response->json();
+                // Check if data exists and is array
+                if (isset($responseData['data']) && isset($responseData['data']['data'])) {
+                    $lapangan_list = $responseData['data']['data']; // Pagination data
+                } elseif (isset($responseData['data']) && is_array($responseData['data'])) {
+                    $lapangan_list = $responseData['data'];
+                } else {
+                    $lapangan_list = [];
+                }
+            } else {
+                $lapangan_list = [];
+            }
+        } catch (\Exception $e) {
+            $lapangan_list = [];
+        }
+
+        // Add fallback dummy data if empty
+        if (empty($lapangan_list)) {
+            $lapangan_list = [
+                [
+                    'id' => 1,
+                    'nama' => 'Lapangan Futsal A',
+                    'jenis' => 'Futsal',
+                    'lokasi' => 'Gedung A',
+                    'harga_per_jam' => 100000,
+                    'fasilitas' => ['AC', 'Sound System']
+                ],
+                [
+                    'id' => 2,
+                    'nama' => 'Lapangan Badminton B',
+                    'jenis' => 'Badminton',
+                    'lokasi' => 'Gedung B',
+                    'harga_per_jam' => 80000,
+                    'fasilitas' => ['AC', 'Net Baru']
+                ],
+                [
+                    'id' => 3,
+                    'nama' => 'Lapangan Basket C',
+                    'jenis' => 'Basket',
+                    'lokasi' => 'Outdoor',
+                    'harga_per_jam' => 120000,
+                    'fasilitas' => ['Ring Standard', 'Lighting']
+                ]
+            ];
+        }
+        
+        return view('orders.edit', compact('order', 'lapangan_list'));
+    }
+
+    public function update(Request $request, $id)
+    {
+        $order = Order::findOrFail($id);
+        
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'customer_email' => 'required|email|max:255',
+            'customer_phone' => 'required|string|max:20',
+            'lapangan_id' => 'required|integer',
+            'tanggal_booking' => 'required|date',
+            'jam_mulai' => 'required',
+            'jam_selesai' => 'required',
+            'total_harga' => 'required|numeric|min:0',
+            'status' => 'required|in:pending,confirmed,cancelled',
+            'payment_status' => 'required|in:unpaid,paid',
+            'notes' => 'nullable|string'
+        ]);
+
+        $order->update($validated);
+
+        return redirect()->route('orders.show', $order->id)
+                        ->with('success', 'Order berhasil diupdate!');
+    }
+
+    public function destroy($id)
+    {
+        $order = Order::findOrFail($id);
+        $orderNumber = $order->order_number;
+        
+        $order->delete();
+
+        return redirect()->route('orders.index')
+                        ->with('success', "Order {$orderNumber} berhasil dihapus!");
+    }
+
+    public function create()
+    {
+        // Get lapangan list
+        try {
+            $response = Http::timeout(10)->get("http://lapangan-service:80/api/lapangan");
+            if ($response->successful()) {
+                $responseData = $response->json();
+                // Check if data exists and is array
+                if (isset($responseData['data']) && isset($responseData['data']['data'])) {
+                    $lapangan_list = $responseData['data']['data']; // Pagination data
+                } elseif (isset($responseData['data']) && is_array($responseData['data'])) {
+                    $lapangan_list = $responseData['data'];
+                } else {
+                    $lapangan_list = [];
+                }
+            } else {
+                $lapangan_list = [];
+            }
+        } catch (\Exception $e) {
+            $lapangan_list = [];
+        }
+
+        // Add fallback dummy data if empty
+        if (empty($lapangan_list)) {
+            $lapangan_list = [
+                [
+                    'id' => 1,
+                    'nama' => 'Lapangan Futsal A',
+                    'jenis' => 'Futsal',
+                    'lokasi' => 'Gedung A',
+                    'harga_per_jam' => 100000,
+                    'fasilitas' => ['AC', 'Sound System']
+                ],
+                [
+                    'id' => 2,
+                    'nama' => 'Lapangan Badminton B',
+                    'jenis' => 'Badminton',
+                    'lokasi' => 'Gedung B',
+                    'harga_per_jam' => 80000,
+                    'fasilitas' => ['AC', 'Net Baru']
+                ],
+        }
+        
+        return view('orders.create', compact('lapangan_list'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'customer_email' => 'required|email|max:255',
+            'customer_phone' => 'required|string|max:20',
+            'lapangan_id' => 'required|integer',
+            'tanggal_booking' => 'required|date',
+            'jam_mulai' => 'required',
+            'jam_selesai' => 'required',
+            'total_harga' => 'required|numeric|min:0',
+            'status' => 'required|in:pending,confirmed,cancelled',
+            'payment_status' => 'required|in:unpaid,paid',
+            'notes' => 'nullable|string'
+        ]);
+
+        // Generate order number
+        $validated['order_number'] = 'ORD-' . date('Ymd') . '-' . str_pad(Order::whereDate('created_at', today())->count() + 1, 3, '0', STR_PAD_LEFT);
+        
+        // Set jadwal_lapangan_id (dummy value for now)
+        $validated['jadwal_lapangan_id'] = 1;
+
+        $order = Order::create($validated);
+
+        return redirect()->route('orders.show', $order->id)
+                        ->with('success', 'Order berhasil dibuat!');
+    }
+
+    public function updateStatus(Request $request, $id)
+    {
+        $order = Order::findOrFail($id);
+        
+        $validated = $request->validate([
+            'status' => 'required|in:pending,confirmed,cancelled',
+            'payment_status' => 'in:unpaid,paid',
+            'notes' => 'nullable|string'
+        ]);
+
+        $order->update($validated);
+
+        return redirect()->back()->with('success', 'Status order berhasil diupdate!');
+    }
+}
