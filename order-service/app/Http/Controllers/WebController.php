@@ -565,4 +565,162 @@ class WebController extends Controller
         
         return $hours * 60 + $minutes;
     }
+
+    /**
+     * Get available time slots for a specific lapangan and date
+     */
+    public function getAvailableTimeSlots(Request $request)
+    {
+        try {
+            $lapanganId = $request->get('lapangan_id');
+            $tanggalBooking = $request->get('tanggal_booking');
+
+            if (!$lapanganId || !$tanggalBooking) {
+                return response()->json(['error' => 'lapangan_id and tanggal_booking are required'], 400);
+            }
+
+            $existingBookings = $this->getExistingBookings($lapanganId, $tanggalBooking);
+            $availableSlots = $this->calculateAvailableSlots($existingBookings);
+            $bookedSlots = $this->formatBookedSlots($existingBookings);
+
+            return response()->json([
+                'success' => true,
+                'lapangan_id' => $lapanganId,
+                'tanggal_booking' => $tanggalBooking,
+                'available_slots' => $availableSlots,
+                'booked_slots' => $bookedSlots,
+                'total_available' => count($availableSlots),
+                'total_booked' => count($bookedSlots),
+                'debug_info' => [
+                    'existing_bookings_count' => $existingBookings->count(),
+                    'operating_hours_count' => count(self::OPERATING_HOURS)
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error in getAvailableTimeSlots: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Server error: ' . $e->getMessage(),
+                'success' => false
+            ], 500);
+        }
+    }
+
+    private function getExistingBookings($lapanganId, $tanggalBooking)
+    {
+        return Order::where('lapangan_id', $lapanganId)
+                   ->whereDate('tanggal_booking', $tanggalBooking)
+                   ->whereNotIn('status', ['cancelled'])
+                   ->select('jam_mulai', 'jam_selesai', 'customer_name', 'order_number')
+                   ->get();
+    }
+
+    private function calculateAvailableSlots($existingBookings): array
+    {
+        $availableSlots = [];
+        
+        foreach (self::OPERATING_HOURS as $hour) {
+            $nextHour = date('H:i', strtotime($hour . ' +1 hour'));
+            
+            if (!$this->isHourSlotBooked($hour, $nextHour, $existingBookings)) {
+                $availableSlots[] = [
+                    'time' => $hour . ' - ' . $nextHour,
+                    'start' => $hour,
+                    'end' => $nextHour,
+                    'available' => true
+                ];
+            }
+        }
+
+        return $availableSlots;
+    }
+
+    private function isHourSlotBooked($hour, $nextHour, $existingBookings): bool
+    {
+        foreach ($existingBookings as $booking) {
+            if (empty($booking->jam_mulai) || empty($booking->jam_selesai)) {
+                continue;
+            }
+            
+            $bookingStart = $this->formatTimeForComparison($booking->jam_mulai);
+            $bookingEnd = $this->formatTimeForComparison($booking->jam_selesai);
+            
+            if (!empty($bookingStart) && !empty($bookingEnd) && $bookingStart !== $bookingEnd) {
+                if ($this->isTimeSlotConflict($hour, $nextHour, $bookingStart, $bookingEnd)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    private function formatBookedSlots($existingBookings): array
+    {
+        $bookedSlots = [];
+        
+        foreach ($existingBookings as $booking) {
+            if (empty($booking->jam_mulai) || empty($booking->jam_selesai)) {
+                continue;
+            }
+            
+            $bookingStart = $this->formatTimeForComparison($booking->jam_mulai);
+            $bookingEnd = $this->formatTimeForComparison($booking->jam_selesai);
+            
+            Log::info('Processing booking for debug:', [
+                'order_number' => $booking->order_number,
+                'customer_name' => $booking->customer_name,
+                'jam_mulai_raw' => $booking->jam_mulai,
+                'jam_selesai_raw' => $booking->jam_selesai,
+                'jam_mulai_formatted' => $bookingStart,
+                'jam_selesai_formatted' => $bookingEnd
+            ]);
+            
+            if (!empty($bookingStart) && !empty($bookingEnd) && $bookingStart !== $bookingEnd) {
+                $bookedSlots[] = [
+                    'time' => $bookingStart . ' - ' . $bookingEnd,
+                    'start' => $bookingStart,
+                    'end' => $bookingEnd,
+                    'booked_by' => $booking->customer_name ?? 'Unknown',
+                    'order_number' => $booking->order_number ?? '',
+                    'available' => false
+                ];
+            } else {
+                Log::warning('Invalid time format in booking:', [
+                    'order_number' => $booking->order_number,
+                    'customer_name' => $booking->customer_name,
+                    'jam_mulai_raw' => $booking->jam_mulai,
+                    'jam_selesai_raw' => $booking->jam_selesai,
+                    'jam_mulai_formatted' => $bookingStart,
+                    'jam_selesai_formatted' => $bookingEnd
+                ]);
+            }
+        }
+        
+        return $bookedSlots;
+    }
+
+    /**
+     * Format time for consistent comparison
+     */
+    private function formatTimeForComparison($time): string
+    {
+        if (empty($time)) {
+            return '';
+        }
+        
+        // If it's already in H:i format, return as is
+        if (preg_match('/^\d{2}:\d{2}$/', $time)) {
+            return $time;
+        }
+        
+        // If it's a time object or datetime string, format it
+        try {
+            $dateTime = new \DateTime($time);
+            return $dateTime->format('H:i');
+        } catch (\Exception $e) {
+            Log::warning('Failed to format time: ' . $time, ['error' => $e->getMessage()]);
+            return '';
+        }
+    }
 }
