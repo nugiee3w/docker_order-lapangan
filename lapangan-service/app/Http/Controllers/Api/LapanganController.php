@@ -12,6 +12,77 @@ use Illuminate\Support\Facades\Storage;
 class LapanganController extends Controller
 {
     /**
+     * @OA\Get(
+     *     path="/lapangan",
+     *     operationId="getLapanganList",
+     *     tags={"Lapangan"},
+     *     summary="Dapatkan daftar lapangan",
+     *     description="Mengambil daftar semua lapangan dengan opsi filter",
+     *     @OA\Parameter(
+     *         name="jenis",
+     *         in="query",
+     *         description="Filter berdasarkan jenis lapangan",
+     *         required=false,
+     *         @OA\Schema(
+     *             type="string",
+     *             enum={"futsal", "badminton", "basket", "voli", "tennis"}
+     *         )
+     *     ),
+     *     @OA\Parameter(
+     *         name="status",
+     *         in="query",
+     *         description="Filter berdasarkan status lapangan",
+     *         required=false,
+     *         @OA\Schema(
+     *             type="string",
+     *             enum={"tersedia", "maintenance", "tidak_tersedia"}
+     *         )
+     *     ),
+     *     @OA\Parameter(
+     *         name="tersedia",
+     *         in="query",
+     *         description="Filter hanya lapangan yang tersedia",
+     *         required=false,
+     *         @OA\Schema(type="boolean")
+     *     ),
+     *     @OA\Parameter(
+     *         name="page",
+     *         in="query",
+     *         description="Nomor halaman untuk pagination",
+     *         required=false,
+     *         @OA\Schema(type="integer", minimum=1)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Daftar lapangan berhasil diambil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Data lapangan berhasil diambil"),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 @OA\Property(property="current_page", type="integer", example=1),
+     *                 @OA\Property(property="per_page", type="integer", example=10),
+     *                 @OA\Property(property="total", type="integer", example=50),
+     *                 @OA\Property(
+     *                     property="data",
+     *                     type="array",
+     *                     @OA\Items(ref="#/components/schemas/Lapangan")
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Validation failed"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     )
+     * )
+     * 
      * Display a listing of the resource.
      */
     public function index(Request $request): JsonResponse
@@ -43,6 +114,49 @@ class LapanganController extends Controller
     }
 
     /**
+     * @OA\Post(
+     *     path="/lapangan",
+     *     operationId="storeLapangan",
+     *     tags={"Lapangan"},
+     *     summary="Buat lapangan baru",
+     *     description="Membuat data lapangan baru dengan validasi lengkap",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="multipart/form-data",
+     *             @OA\Schema(
+     *                 required={"nama", "jenis", "harga_per_jam", "kapasitas"},
+     *                 @OA\Property(property="nama", type="string", example="Lapangan Futsal A", description="Nama lapangan"),
+     *                 @OA\Property(property="jenis", type="string", enum={"futsal", "badminton", "basket", "voli", "tennis"}, example="futsal", description="Jenis lapangan"),
+     *                 @OA\Property(property="deskripsi", type="string", example="Lapangan futsal dengan rumput sintetis berkualitas tinggi", description="Deskripsi lapangan"),
+     *                 @OA\Property(property="harga_per_jam", type="number", format="float", example=150000, description="Harga sewa per jam"),
+     *                 @OA\Property(property="kapasitas", type="integer", example=14, description="Kapasitas maksimal pemain"),
+     *                 @OA\Property(property="fasilitas", type="string", example="AC, Sound System, Kamar Ganti", description="Fasilitas yang tersedia"),
+     *                 @OA\Property(property="status", type="string", enum={"tersedia", "maintenance", "tidak_tersedia"}, example="tersedia", description="Status lapangan"),
+     *                 @OA\Property(property="gambar", type="string", format="binary", description="File gambar lapangan (JPEG, PNG, JPG max 2MB)")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Lapangan berhasil dibuat",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Lapangan berhasil dibuat"),
+     *             @OA\Property(property="data", ref="#/components/schemas/Lapangan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Validation failed"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     )
+     * )
+     * 
      * Store a newly created resource in storage.
      */
     public function store(Request $request): JsonResponse
@@ -81,6 +195,38 @@ class LapanganController extends Controller
     }
 
     /**
+     * @OA\Get(
+     *     path="/lapangan/{id}",
+     *     operationId="getLapanganById",
+     *     tags={"Lapangan"},
+     *     summary="Dapatkan detail lapangan",
+     *     description="Mengambil data detail lapangan berdasarkan ID",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="ID lapangan",
+     *         required=true,
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Detail lapangan berhasil diambil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Data lapangan berhasil diambil"),
+     *             @OA\Property(property="data", ref="#/components/schemas/Lapangan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Lapangan tidak ditemukan",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Lapangan tidak ditemukan")
+     *         )
+     *     )
+     * )
+     * 
      * Display the specified resource.
      */
     public function show(string $id): JsonResponse
@@ -102,6 +248,64 @@ class LapanganController extends Controller
     }
 
     /**
+     * @OA\Put(
+     *     path="/lapangan/{id}",
+     *     operationId="updateLapangan",
+     *     tags={"Lapangan"},
+     *     summary="Update lapangan",
+     *     description="Memperbarui data lapangan berdasarkan ID",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="ID lapangan",
+     *         required=true,
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *     @OA\RequestBody(
+     *         required=false,
+     *         @OA\MediaType(
+     *             mediaType="multipart/form-data",
+     *             @OA\Schema(
+     *                 @OA\Property(property="nama", type="string", example="Lapangan Futsal A Updated", description="Nama lapangan"),
+     *                 @OA\Property(property="jenis", type="string", enum={"futsal", "badminton", "basket", "voli", "tennis"}, example="futsal", description="Jenis lapangan"),
+     *                 @OA\Property(property="deskripsi", type="string", example="Lapangan futsal dengan fasilitas terbaru", description="Deskripsi lapangan"),
+     *                 @OA\Property(property="harga_per_jam", type="number", format="float", example=175000, description="Harga sewa per jam"),
+     *                 @OA\Property(property="kapasitas", type="integer", example=16, description="Kapasitas maksimal pemain"),
+     *                 @OA\Property(property="fasilitas", type="string", example="AC, Sound System, Kamar Ganti, WiFi", description="Fasilitas yang tersedia"),
+     *                 @OA\Property(property="status", type="string", enum={"tersedia", "maintenance", "tidak_tersedia"}, example="tersedia", description="Status lapangan"),
+     *                 @OA\Property(property="gambar", type="string", format="binary", description="File gambar lapangan baru (JPEG, PNG, JPG max 2MB)"),
+     *                 @OA\Property(property="_method", type="string", example="PUT", description="Method override untuk form data")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Lapangan berhasil diperbarui",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Lapangan berhasil diperbarui"),
+     *             @OA\Property(property="data", ref="#/components/schemas/Lapangan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Lapangan tidak ditemukan",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Lapangan tidak ditemukan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Validation failed"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     )
+     * )
+     * 
      * Update the specified resource in storage.
      */
     public function update(Request $request, string $id): JsonResponse
@@ -154,6 +358,45 @@ class LapanganController extends Controller
     }
 
     /**
+     * @OA\Delete(
+     *     path="/lapangan/{id}",
+     *     operationId="deleteLapangan",
+     *     tags={"Lapangan"},
+     *     summary="Hapus lapangan",
+     *     description="Menghapus data lapangan berdasarkan ID",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="ID lapangan",
+     *         required=true,
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Lapangan berhasil dihapus",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Lapangan berhasil dihapus")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Lapangan tidak ditemukan",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Lapangan tidak ditemukan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=409,
+     *         description="Lapangan tidak dapat dihapus karena memiliki booking aktif",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Lapangan tidak dapat dihapus karena memiliki booking aktif")
+     *         )
+     *     )
+     * )
+     * 
      * Remove the specified resource from storage.
      */
     public function destroy(string $id): JsonResponse

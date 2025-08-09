@@ -12,6 +12,65 @@ use Illuminate\Validation\Rule;
 class JadwalLapanganController extends Controller
 {
     /**
+     * @OA\Get(
+     *     path="/jadwal-lapangan",
+     *     operationId="getJadwalLapanganList",
+     *     tags={"Jadwal Lapangan"},
+     *     summary="Dapatkan daftar jadwal lapangan",
+     *     description="Mengambil daftar jadwal lapangan dengan opsi filter",
+     *     @OA\Parameter(
+     *         name="lapangan_id",
+     *         in="query",
+     *         description="Filter berdasarkan ID lapangan",
+     *         required=false,
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *     @OA\Parameter(
+     *         name="tanggal",
+     *         in="query",
+     *         description="Filter berdasarkan tanggal (YYYY-MM-DD)",
+     *         required=false,
+     *         @OA\Schema(type="string", format="date", example="2024-01-15")
+     *     ),
+     *     @OA\Parameter(
+     *         name="status",
+     *         in="query",
+     *         description="Filter berdasarkan status jadwal",
+     *         required=false,
+     *         @OA\Schema(
+     *             type="string",
+     *             enum={"tersedia", "dibooking", "selesai", "dibatalkan"}
+     *         )
+     *     ),
+     *     @OA\Parameter(
+     *         name="tersedia",
+     *         in="query",
+     *         description="Filter hanya jadwal yang tersedia",
+     *         required=false,
+     *         @OA\Schema(type="boolean")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Daftar jadwal lapangan berhasil diambil",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Data jadwal lapangan berhasil diambil"),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 @OA\Property(property="current_page", type="integer", example=1),
+     *                 @OA\Property(property="per_page", type="integer", example=20),
+     *                 @OA\Property(property="total", type="integer", example=100),
+     *                 @OA\Property(
+     *                     property="data",
+     *                     type="array",
+     *                     @OA\Items(ref="#/components/schemas/JadwalLapangan")
+     *                 )
+     *             )
+     *         )
+     *     )
+     * )
+     * 
      * Display a listing of the resource.
      */
     public function index(Request $request): JsonResponse
@@ -50,6 +109,44 @@ class JadwalLapanganController extends Controller
     }
 
     /**
+     * @OA\Post(
+     *     path="/jadwal-lapangan",
+     *     operationId="storeJadwalLapangan",
+     *     tags={"Jadwal Lapangan"},
+     *     summary="Buat jadwal lapangan baru",
+     *     description="Membuat jadwal baru untuk lapangan dengan validasi konflik",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"lapangan_id", "tanggal", "jam_mulai", "jam_selesai", "harga"},
+     *             @OA\Property(property="lapangan_id", type="integer", example=1, description="ID lapangan"),
+     *             @OA\Property(property="tanggal", type="string", format="date", example="2024-01-15", description="Tanggal jadwal"),
+     *             @OA\Property(property="jam_mulai", type="string", format="time", example="08:00", description="Jam mulai (HH:MM)"),
+     *             @OA\Property(property="jam_selesai", type="string", format="time", example="10:00", description="Jam selesai (HH:MM)"),
+     *             @OA\Property(property="harga", type="number", format="float", example=300000, description="Harga sesi"),
+     *             @OA\Property(property="status", type="string", enum={"tersedia", "dipesan", "sedang_digunakan", "selesai"}, example="tersedia", description="Status jadwal")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Jadwal berhasil dibuat",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Jadwal lapangan berhasil dibuat"),
+     *             @OA\Property(property="data", ref="#/components/schemas/JadwalLapangan")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error atau konflik jadwal",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Jadwal untuk lapangan ini pada waktu tersebut sudah ada"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     )
+     * )
+     * 
      * Store a newly created resource in storage.
      */
     public function store(Request $request): JsonResponse
